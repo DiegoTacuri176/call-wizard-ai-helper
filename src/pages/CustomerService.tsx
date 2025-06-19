@@ -6,54 +6,113 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Headphones, Phone, User, MessageCircle } from "lucide-react";
+import { Headphones, Phone, User, MessageCircle, Mic, MicOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useConversation } from '@11labs/react';
 
 const CustomerService = () => {
   const [apiKey, setApiKey] = useState('');
-  const [isConnected, setIsConnected] = useState(false);
-  const [conversationStatus, setConversationStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [agentId, setAgentId] = useState('');
+  const [isSetup, setIsSetup] = useState(false);
   const { toast } = useToast();
 
-  const handleConnect = async () => {
+  const conversation = useConversation({
+    onConnect: () => {
+      console.log('Connected to ElevenLabs');
+      toast({
+        title: "Connected",
+        description: "Voice AI is now ready to help you!",
+      });
+    },
+    onDisconnect: () => {
+      console.log('Disconnected from ElevenLabs');
+      toast({
+        title: "Disconnected",
+        description: "Voice conversation has ended.",
+      });
+    },
+    onMessage: (message) => {
+      console.log('Message received:', message);
+    },
+    onError: (error) => {
+      console.error('Conversation error:', error);
+      toast({
+        title: "Error",
+        description: "Something went wrong with the voice conversation.",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleSetup = async () => {
     if (!apiKey.trim()) {
       toast({
         title: "API Key Required",
-        description: "Please enter your ElevenLabs API key to connect.",
+        description: "Please enter your ElevenLabs API key.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!agentId.trim()) {
+      toast({
+        title: "Agent ID Required",
+        description: "Please enter your ElevenLabs Agent ID.",
         variant: "destructive",
       });
       return;
     }
 
     try {
-      setConversationStatus('connecting');
-      // Simulate connection process
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setIsConnected(true);
-      setConversationStatus('connected');
+      // Request microphone permission
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setIsSetup(true);
       
       toast({
-        title: "Connected Successfully",
-        description: "Voice AI customer service is now active.",
+        title: "Setup Complete",
+        description: "Ready to start voice conversation!",
       });
     } catch (error) {
-      console.error('Connection error:', error);
-      setConversationStatus('disconnected');
+      console.error('Microphone access error:', error);
       toast({
-        title: "Connection Failed",
-        description: "Failed to connect to ElevenLabs API. Please check your API key.",
+        title: "Microphone Access Required",
+        description: "Please allow microphone access to use voice AI.",
         variant: "destructive",
       });
     }
   };
 
-  const handleDisconnect = () => {
-    setIsConnected(false);
-    setConversationStatus('disconnected');
-    toast({
-      title: "Disconnected",
-      description: "Voice AI customer service has been disconnected.",
-    });
+  const startConversation = async () => {
+    try {
+      // Generate signed URL using the API key and agent ID
+      const response = await fetch(
+        `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${agentId}`,
+        {
+          method: "GET",
+          headers: {
+            "xi-api-key": apiKey,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to get signed URL');
+      }
+
+      const data = await response.json();
+      await conversation.startSession({ url: data.signed_url });
+    } catch (error) {
+      console.error('Failed to start conversation:', error);
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect to ElevenLabs. Please check your API key and Agent ID.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const endConversation = async () => {
+    await conversation.endSession();
   };
 
   const sampleScenarios = [
@@ -72,8 +131,8 @@ const CustomerService = () => {
           <p className="text-lg text-gray-600">Experience intelligent voice-powered customer support</p>
         </div>
 
-        {/* API Key Setup */}
-        {!isConnected && (
+        {/* Setup Form */}
+        {!isSetup && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -81,7 +140,7 @@ const CustomerService = () => {
                 Setup Voice AI
               </CardTitle>
               <CardDescription>
-                Enter your ElevenLabs API key to activate the voice AI customer service
+                Enter your ElevenLabs credentials to activate the voice AI customer service
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -95,16 +154,21 @@ const CustomerService = () => {
                   onChange={(e) => setApiKey(e.target.value)}
                 />
               </div>
-              <Button 
-                onClick={handleConnect} 
-                disabled={conversationStatus === 'connecting'}
-                className="w-full"
-              >
-                {conversationStatus === 'connecting' ? 'Connecting...' : 'Connect Voice AI'}
+              <div className="space-y-2">
+                <Label htmlFor="agentId">Agent ID</Label>
+                <Input
+                  id="agentId"
+                  placeholder="Enter your ElevenLabs Agent ID"
+                  value={agentId}
+                  onChange={(e) => setAgentId(e.target.value)}
+                />
+              </div>
+              <Button onClick={handleSetup} className="w-full">
+                Setup Voice AI
               </Button>
               <Alert>
                 <AlertDescription>
-                  You need an ElevenLabs API key to use this demo. Sign up at elevenlabs.io to get your API key.
+                  You need an ElevenLabs API key and Agent ID. Create an agent at elevenlabs.io and get your API key from your profile.
                 </AlertDescription>
               </Alert>
             </CardContent>
@@ -112,7 +176,7 @@ const CustomerService = () => {
         )}
 
         {/* Voice AI Interface */}
-        {isConnected && (
+        {isSetup && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
@@ -120,33 +184,55 @@ const CustomerService = () => {
                   <Phone className="h-5 w-5" />
                   Voice AI Customer Service
                 </div>
-                <Badge variant={conversationStatus === 'connected' ? 'default' : 'secondary'}>
-                  {conversationStatus === 'connected' ? 'Active' : 'Inactive'}
+                <Badge variant={conversation.status === 'connected' ? 'default' : 'secondary'}>
+                  {conversation.status === 'connected' ? 'Connected' : 'Disconnected'}
                 </Badge>
               </CardTitle>
               <CardDescription>
-                Click the microphone button to start talking with the AI customer service agent
+                Start a conversation with the AI customer service agent
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex flex-col items-center space-y-4">
-                <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center">
-                  <Headphones className="h-12 w-12 text-blue-600" />
+                <div className={`w-24 h-24 rounded-full flex items-center justify-center transition-colors ${
+                  conversation.isSpeaking ? 'bg-green-100 animate-pulse' : 'bg-blue-100'
+                }`}>
+                  {conversation.status === 'connected' ? (
+                    conversation.isSpeaking ? (
+                      <Mic className="h-12 w-12 text-green-600" />
+                    ) : (
+                      <Headphones className="h-12 w-12 text-blue-600" />
+                    )
+                  ) : (
+                    <MicOff className="h-12 w-12 text-gray-400" />
+                  )}
                 </div>
                 <div className="text-center">
-                  <p className="text-lg font-medium">AI Agent Ready</p>
-                  <p className="text-gray-600">Speak naturally - I'm here to help!</p>
+                  <p className="text-lg font-medium">
+                    {conversation.status === 'connected' 
+                      ? (conversation.isSpeaking ? 'AI is Speaking...' : 'Listening...') 
+                      : 'AI Agent Ready'}
+                  </p>
+                  <p className="text-gray-600">
+                    {conversation.status === 'connected' 
+                      ? 'Speak naturally - I\'m here to help!' 
+                      : 'Click to start conversation'}
+                  </p>
                 </div>
               </div>
               
               <div className="flex justify-center gap-4">
-                <Button size="lg" className="bg-green-600 hover:bg-green-700">
-                  <MessageCircle className="h-5 w-5 mr-2" />
-                  Start Conversation
-                </Button>
-                <Button variant="outline" onClick={handleDisconnect}>
-                  Disconnect
-                </Button>
+                {conversation.status !== 'connected' ? (
+                  <Button size="lg" onClick={startConversation} className="bg-green-600 hover:bg-green-700">
+                    <MessageCircle className="h-5 w-5 mr-2" />
+                    Start Conversation
+                  </Button>
+                ) : (
+                  <Button size="lg" variant="destructive" onClick={endConversation}>
+                    <MicOff className="h-5 w-5 mr-2" />
+                    End Conversation
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
